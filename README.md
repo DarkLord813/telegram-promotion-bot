@@ -28,7 +28,6 @@ This bot is designed for **LEGITIMATE PROMOTION SERVICES ONLY**. It does NOT:
 | 3,000       | 150 ⭐        |
 | 5,000       | 200 ⭐        |
 | 10,000      | 350 ⭐        |  
-|-------------|---------------|
 ## Installation
 
 1. Clone the repository:
