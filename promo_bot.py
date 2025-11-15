@@ -5,6 +5,7 @@ import base64
 import logging
 import asyncio
 import aiohttp
+import traceback
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
@@ -20,7 +21,12 @@ logging.basicConfig(
 class Database:
     def __init__(self):
         self.db_path = "promotion_bot.db"
-        self.init_db()
+        try:
+            self.init_db()
+            logging.info("✅ Database initialized successfully")
+        except Exception as e:
+            logging.error(f"❌ Database initialization failed: {e}")
+            raise
     
     def init_db(self):
         conn = sqlite3.connect(self.db_path)
@@ -105,20 +111,28 @@ class Database:
         if admin_ids:
             for admin_id in admin_ids.split(','):
                 if admin_id.strip():
-                    cursor.execute('''
-                        INSERT OR IGNORE INTO admins (user_id, username) 
-                        VALUES (?, ?)
-                    ''', (int(admin_id.strip()), 'default_admin'))
+                    try:
+                        cursor.execute('''
+                            INSERT OR IGNORE INTO admins (user_id, username) 
+                            VALUES (?, ?)
+                        ''', (int(admin_id.strip()), 'default_admin'))
+                        logging.info(f"✅ Added admin: {admin_id}")
+                    except Exception as e:
+                        logging.error(f"❌ Error adding admin {admin_id}: {e}")
         
         # Insert initial target channels from environment
         target_channels = os.getenv('TARGET_CHANNELS', '')
         if target_channels:
             for channel_id in target_channels.split(','):
                 if channel_id.strip():
-                    cursor.execute('''
-                        INSERT OR IGNORE INTO target_channels (channel_id, auto_added) 
-                        VALUES (?, ?)
-                    ''', (channel_id.strip(), False))
+                    try:
+                        cursor.execute('''
+                            INSERT OR IGNORE INTO target_channels (channel_id, auto_added) 
+                            VALUES (?, ?)
+                        ''', (channel_id.strip(), False))
+                        logging.info(f"✅ Added target channel: {channel_id}")
+                    except Exception as e:
+                        logging.error(f"❌ Error adding target channel {channel_id}: {e}")
         
         conn.commit()
         conn.close()
@@ -139,7 +153,7 @@ class Database:
             conn.commit()
             return True
         except Exception as e:
-            print(f"Error adding channel: {e}")
+            logging.error(f"Error adding channel: {e}")
             return False
         finally:
             conn.close()
@@ -220,7 +234,7 @@ class Database:
             conn.commit()
             return cursor.lastrowid
         except Exception as e:
-            print(f"Error adding payment: {e}")
+            logging.error(f"Error adding payment: {e}")
             return None
         finally:
             conn.close()
@@ -248,7 +262,7 @@ class Database:
             ''', (user_id, channel_id, joined, datetime.now()))
             conn.commit()
         except Exception as e:
-            print(f"Error updating join status: {e}")
+            logging.error(f"Error updating join status: {e}")
         finally:
             conn.close()
     
@@ -279,7 +293,7 @@ class Database:
             conn.commit()
             return True
         except Exception as e:
-            print(f"Error adding target channel: {e}")
+            logging.error(f"Error adding target channel: {e}")
             return False
         finally:
             conn.close()
@@ -316,7 +330,7 @@ class Database:
             conn.commit()
             return True
         except Exception as e:
-            print(f"Error adding promotion message: {e}")
+            logging.error(f"Error adding promotion message: {e}")
             return False
         finally:
             conn.close()
@@ -459,7 +473,7 @@ class Database:
             conn.commit()
             return True
         except Exception as e:
-            print(f"Error importing data: {e}")
+            logging.error(f"Error importing data: {e}")
             return False
         finally:
             conn.close()
@@ -472,8 +486,18 @@ class GitHubBackup:
         self.backup_path = os.getenv('GITHUB_BACKUP_PATH', 'backups/promotion_bot.db')
         self.branch = os.getenv('GITHUB_BACKUP_BRANCH', 'main')
         self.base_url = f"https://api.github.com/repos/{self.repo_owner}/{self.repo_name}/contents"
+        
+        # Log GitHub configuration status
+        if self.token and self.repo_owner and self.repo_name:
+            logging.info("✅ GitHub backup configured")
+        else:
+            logging.warning("⚠️ GitHub backup not fully configured")
     
     def backup_database(self, database_export):
+        if not self.token:
+            logging.warning("GitHub token not available, skipping backup")
+            return False
+            
         try:
             # Convert data to JSON
             data_json = json.dumps(database_export, indent=2, default=str)
@@ -505,10 +529,15 @@ class GitHubBackup:
                 json=data
             )
             
-            return response.status_code == 201
+            if response.status_code == 201:
+                logging.info("✅ Backup created successfully on GitHub")
+                return True
+            else:
+                logging.error(f"❌ Backup failed with status {response.status_code}: {response.text}")
+                return False
             
         except Exception as e:
-            print(f"Backup error: {e}")
+            logging.error(f"Backup error: {e}")
             return False
     
     def _ensure_backup_directory(self, headers):
@@ -533,9 +562,12 @@ class GitHubBackup:
                     json=data
                 )
         except Exception as e:
-            print(f"Directory creation error: {e}")
+            logging.error(f"Directory creation error: {e}")
     
     def load_latest_backup(self):
+        if not self.token:
+            return None
+            
         try:
             headers = {
                 "Authorization": f"token {self.token}",
@@ -564,30 +596,46 @@ class GitHubBackup:
             return None
             
         except Exception as e:
-            print(f"Load backup error: {e}")
+            logging.error(f"Load backup error: {e}")
             return None
 
 class PromotionBot:
     def __init__(self):
-        self.token = os.getenv('BOT_TOKEN')
-        self.required_channels = self.get_required_channels()
-        self.db = Database()
-        self.github_backup = GitHubBackup()
-        
-        # Auto-load latest backup on startup
-        self.load_backup_on_startup()
-        
-        # Pricing configuration
-        self.pricing = {
-            'week': {'stars': 10, 'days': 7},
-            'month': {'stars': 30, 'days': 30},
-            '3months': {'stars': 80, 'days': 90},
-            '6months': {'stars': 160, 'days': 180},
-            'year': {'stars': 300, 'days': 365}
-        }
-        
-        self.application = Application.builder().token(self.token).build()
-        self.setup_handlers()
+        try:
+            logging.info("🔄 Initializing PromotionBot...")
+            
+            self.token = os.getenv('BOT_TOKEN')
+            if not self.token:
+                raise ValueError("BOT_TOKEN environment variable is required")
+            
+            logging.info("✅ BOT_TOKEN loaded successfully")
+            
+            self.required_channels = self.get_required_channels()
+            logging.info(f"✅ Required channels: {len(self.required_channels)}")
+            
+            self.db = Database()
+            self.github_backup = GitHubBackup()
+            
+            # Auto-load latest backup on startup
+            self.load_backup_on_startup()
+            
+            # Pricing configuration
+            self.pricing = {
+                'week': {'stars': 10, 'days': 7},
+                'month': {'stars': 30, 'days': 30},
+                '3months': {'stars': 80, 'days': 90},
+                '6months': {'stars': 160, 'days': 180},
+                'year': {'stars': 300, 'days': 365}
+            }
+            
+            self.application = Application.builder().token(self.token).build()
+            self.setup_handlers()
+            
+            logging.info("✅ PromotionBot initialized successfully")
+            
+        except Exception as e:
+            logging.error(f"❌ Failed to initialize PromotionBot: {e}")
+            raise
     
     def get_required_channels(self):
         """Get list of channels that users must join"""
@@ -1465,6 +1513,18 @@ Your promotion will be activated automatically after payment verification.
         except Exception as e:
             logging.error(f"Keep alive error: {e}")
     
+    async def auto_backup(self, context: ContextTypes.DEFAULT_TYPE):
+        """Automatically backup database"""
+        try:
+            data = self.db.export_data()
+            success = self.github_backup.backup_database(data)
+            if success:
+                logging.info("✅ Auto-backup completed successfully")
+            else:
+                logging.error("❌ Auto-backup failed")
+        except Exception as e:
+            logging.error(f"Auto-backup error: {e}")
+    
     async def run(self):
         self.start_time = datetime.now()
         
@@ -1513,31 +1573,39 @@ Your promotion will be activated automatically after payment verification.
         
         logging.info("🤖 Starting Promotion Bot with all features...")
         await self.application.run_polling()
-    
-    async def auto_backup(self, context: ContextTypes.DEFAULT_TYPE):
-        """Automatically backup database"""
-        try:
-            data = self.db.export_data()
-            success = self.github_backup.backup_database(data)
-            if success:
-                logging.info("✅ Auto-backup completed successfully")
-            else:
-                logging.error("❌ Auto-backup failed")
-        except Exception as e:
-            logging.error(f"Auto-backup error: {e}")
 
 def main():
-    # Check required environment variables
-    if not os.getenv('BOT_TOKEN'):
-        logging.error("❌ BOT_TOKEN environment variable is required!")
-        return
-    
-    # Check if we're on Render and set webhook for health checks
-    if os.getenv('RENDER'):
-        logging.info("🚀 Running on Render platform")
-    
-    bot = PromotionBot()
-    asyncio.run(bot.run())
+    try:
+        # Check required environment variables with debug info
+        logging.info("🔧 Starting bot initialization...")
+        
+        bot_token = os.getenv('BOT_TOKEN')
+        if not bot_token:
+            logging.error("❌ BOT_TOKEN environment variable is required!")
+            logging.info("Available environment variables:")
+            for key in os.environ:
+                if 'TOKEN' in key or 'BOT' in key or 'GITHUB' in key:
+                    logging.info(f"  {key}: {'*' * len(os.getenv(key)) if os.getenv(key) else 'NOT SET'}")
+            return
+        
+        logging.info("✅ BOT_TOKEN found")
+        
+        # Check if we're on Render
+        if os.getenv('RENDER'):
+            logging.info("🚀 Running on Render platform")
+        
+        # Initialize bot
+        logging.info("🔄 Creating PromotionBot instance...")
+        bot = PromotionBot()
+        logging.info("✅ PromotionBot created successfully")
+        
+        # Run bot
+        logging.info("🤖 Starting bot...")
+        asyncio.run(bot.run())
+        
+    except Exception as e:
+        logging.error(f"💥 Critical error during startup: {e}")
+        logging.error(traceback.format_exc())
 
 if __name__ == '__main__':
     main()
