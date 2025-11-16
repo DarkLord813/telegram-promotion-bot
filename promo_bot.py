@@ -1622,19 +1622,8 @@ def main():
         # Run bot - use the proper asyncio approach for Render
         logging.info("🤖 Starting bot...")
         
-        # Create a new event loop for Render compatibility
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            loop.run_until_complete(bot.run())
-        except KeyboardInterrupt:
-            logging.info("🛑 Bot stopped by user")
-        except Exception as e:
-            logging.error(f"💥 Bot crashed: {e}")
-            logging.error(traceback.format_exc())
-        finally:
-            loop.close()
+        # Use asyncio.run() which handles event loop creation properly
+        asyncio.run(bot.run())
         
     except Exception as e:
         logging.error(f"💥 Critical error during startup: {e}")
