@@ -10,6 +10,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from telegram.error import TelegramError
 import requests
+from aiohttp import web
+import threading
 
 # Configure logging
 logging.basicConfig(
@@ -19,6 +21,55 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# Simple HTTP server for Render port binding
+class HealthServer:
+    def __init__(self):
+        self.port = int(os.getenv('PORT', 10000))
+        self.app = web.Application()
+        self.setup_routes()
+        
+    def setup_routes(self):
+        self.app.router.add_get('/', self.health_check)
+        self.app.router.add_get('/health', self.health_check)
+        self.app.router.add_get('/status', self.status_check)
+    
+    async def health_check(self, request):
+        """Simple health check endpoint"""
+        return web.json_response({
+            "status": "healthy",
+            "service": "Telegram Promotion Bot",
+            "timestamp": datetime.now().isoformat()
+        })
+    
+    async def status_check(self, request):
+        """Status check with bot info"""
+        return web.json_response({
+            "status": "running",
+            "service": "Telegram Promotion Bot",
+            "timestamp": datetime.now().isoformat(),
+            "environment": "production"
+        })
+    
+    def run(self):
+        """Run the HTTP server in a separate thread"""
+        async def start_server():
+            runner = web.AppRunner(self.app)
+            await runner.setup()
+            site = web.TCPSite(runner, '0.0.0.0', self.port)
+            await site.start()
+            logger.info(f"✅ HTTP server running on port {self.port}")
+            
+            # Keep the server running
+            while True:
+                await asyncio.sleep(3600)
+        
+        # Run in current event loop
+        asyncio.create_task(start_server())
+
+# Start HTTP server
+health_server = HealthServer()
+
+# ... (Keep all your existing Database class exactly as before)
 class Database:
     def __init__(self):
         self.db_path = "promotion_bot.db"
@@ -144,6 +195,7 @@ class Database:
             logger.error(f"❌ Database initialization failed: {e}")
             raise
     
+    # ... (Keep all other Database methods exactly as before)
     def add_channel(self, channel_id, channel_username, channel_title, owner_id, duration_days):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -485,6 +537,7 @@ class Database:
         finally:
             conn.close()
 
+# ... (Keep GitHubBackup class exactly as before)
 class GitHubBackup:
     def __init__(self):
         try:
@@ -611,6 +664,7 @@ class GitHubBackup:
             logger.error(f"Load backup error: {e}")
             return None
 
+# ... (Keep PromotionBot class exactly as before, but add the HTTP server startup)
 class PromotionBot:
     def __init__(self):
         try:
@@ -1585,27 +1639,16 @@ Your promotion will be activated automatically after payment verification.
         
         logger.info("🤖 Starting Promotion Bot with all features...")
         
-        # Use the simple modern approach - THIS IS THE KEY FIX
-        await self.application.initialize()
-        await self.application.start()
-        await self.application.updater.start_polling()
+        # Start HTTP server for Render port binding
+        health_server.run()
         
-        logger.info("✅ Bot is now running and polling for messages...")
-        
-        # Keep the bot running
-        while True:
-            await asyncio.sleep(3600)  # Sleep for 1 hour
-    
-    async def stop(self):
-        """Properly stop the bot"""
-        await self.application.updater.stop()
-        await self.application.stop()
-        await self.application.shutdown()
+        # Use the simple modern approach
+        await self.application.run_polling()
 
 def main():
     """Main function that properly handles the event loop"""
     try:
-        logger.info("🚀 Starting Promotion Bot...")
+        logger.info("🚀 Starting Promotion Bot with HTTP server...")
         
         # Create and run the bot
         bot = PromotionBot()
