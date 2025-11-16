@@ -4,7 +4,6 @@ import json
 import base64
 import logging
 import asyncio
-import aiohttp
 import traceback
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -1578,7 +1577,7 @@ Your promotion will be activated automatically after payment verification.
         
         logging.info("🤖 Starting Promotion Bot with all features...")
         
-        # Use the simple modern approach - this should work with python-telegram-bot v20+
+        # Use the simple modern approach
         await self.application.run_polling()
 
 def main():
