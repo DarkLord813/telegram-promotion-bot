@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: telegram-promotion-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_REPO_OWNER
+        sync: false
+      - key: GITHUB_REPO_NAME
+        sync: false
+      - key: TARGET_CHANNELS
+        sync: false
+      - key: ADMIN_USER_IDS
+        sync: false
