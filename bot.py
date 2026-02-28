@@ -16,7 +16,7 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 import pytz
 
-# Database imports
+# Database imports - SQLAlchemy 1.4.x compatible
 from sqlalchemy import create_engine, Column, Integer, String, BigInteger, Boolean, DateTime, Text, JSON, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -432,7 +432,7 @@ class PromotionBot:
                 
                 text += f"• *{promotion.name}* → {channel.title}\n"
                 text += f"  Type: {schedule.schedule_type}\n"
-                text += f"  Next: {schedule.next_run.strftime('%Y-%m-%d %H:%M')}\n\n"
+                text += f"  Next: {schedule.next_run.strftime('%Y-%m-%d %H:%M') if schedule.next_run else 'Not set'}\n\n"
                 
                 keyboard.append([
                     InlineKeyboardButton(
@@ -921,7 +921,10 @@ class PromotionBot:
                 if scheduled.repeat_days > 0 and scheduled.repeat_count >= scheduled.repeat_days:
                     scheduled.is_active = False
                     # Remove from scheduler
-                    self.scheduler.remove_job(f"promo_{scheduled.id}")
+                    try:
+                        self.scheduler.remove_job(f"promo_{scheduled.id}")
+                    except:
+                        pass
                 else:
                     # Update next run time
                     # This will be handled by APScheduler automatically
@@ -1233,7 +1236,8 @@ class PromotionBot:
                     
                     # Clear temporary data
                     del self.temp_promotions[user_id]
-                    del self.waiting_for[user_id]
+                    if user_id in self.waiting_for:
+                        del self.waiting_for[user_id]
                     
                 except Exception as e:
                     logger.error(f"Error saving promotion: {e}")
