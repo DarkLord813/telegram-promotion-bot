@@ -1,3 +1,4 @@
+# Still in development be patient 🤧
 # Telegram Promotion Bot
 
 A powerful Telegram bot for creating and scheduling promotional messages in channels and groups.
